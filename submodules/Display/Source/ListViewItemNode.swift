@@ -85,7 +85,7 @@ public struct ListViewItemLayoutParams {
 
 open class ListViewItemNode: ASDisplayNode {
     let rotated: Bool
-    final var index: Int?
+    public final var index: Int?
     
     public var isHighlightedInOverlay: Bool = false
     

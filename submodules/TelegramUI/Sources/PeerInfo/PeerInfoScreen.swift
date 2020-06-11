@@ -471,6 +471,7 @@ private final class PeerInfoInteraction {
     let openChat: () -> Void
     let openUsername: (String) -> Void
     let openPhone: (String) -> Void
+    let openUserID: (String) -> Void
     let editingOpenNotificationSettings: () -> Void
     let editingOpenSoundSettings: () -> Void
     let editingToggleShowMessageText: (Bool) -> Void
@@ -500,6 +501,7 @@ private final class PeerInfoInteraction {
     init(
         openUsername: @escaping (String) -> Void,
         openPhone: @escaping (String) -> Void,
+        openUserID: @escaping (String) -> Void,
         editingOpenNotificationSettings: @escaping () -> Void,
         editingOpenSoundSettings: @escaping () -> Void,
         editingToggleShowMessageText: @escaping (Bool) -> Void,
@@ -529,6 +531,7 @@ private final class PeerInfoInteraction {
     ) {
         self.openUsername = openUsername
         self.openPhone = openPhone
+        self.openUserID = openUserID
         self.editingOpenNotificationSettings = editingOpenNotificationSettings
         self.editingOpenSoundSettings = editingOpenSoundSettings
         self.editingToggleShowMessageText = editingToggleShowMessageText
@@ -589,6 +592,13 @@ private func infoItems(data: PeerInfoScreenData?, context: AccountContext, prese
             items[.calls]!.append(PeerInfoScreenCallListItem(id: 20, messages: callMessages))
         }
         
+        let userId = String(user.id.id)
+        items[.peerInfo]!.append(PeerInfoScreenLabeledValueItem.init(id: 10, label: "User ID", text: userId, textColor: .accent, action: {
+            interaction.openUserID(userId)
+        }, requestLayout: {
+            interaction.requestLayout()
+        }))
+       
         if let phone = user.phone {
             let formattedPhone = formatPhoneNumber(phone)
             items[.peerInfo]!.append(PeerInfoScreenLabeledValueItem(id: 2, label: presentationData.strings.ContactInfo_PhoneLabelMobile, text: formattedPhone, textColor: .accent, action: {
@@ -608,6 +618,7 @@ private func infoItems(data: PeerInfoScreenData?, context: AccountContext, prese
                 interaction.requestLayout()
             }))
         }
+       
         if let cachedData = data.cachedData as? CachedUserData {
             if user.isScam {
                 items[.peerInfo]!.append(PeerInfoScreenLabeledValueItem(id: 0, label: user.botInfo == nil ? presentationData.strings.Profile_About : presentationData.strings.Profile_BotInfo, text: user.botInfo != nil ? presentationData.strings.UserInfo_ScamBotWarning : presentationData.strings.UserInfo_ScamUserWarning, textColor: .primary, textBehavior: .multiLine(maxLines: 100, enabledEntities: user.botInfo != nil ? enabledBioEntities : []), action: nil, requestLayout: {
@@ -1115,6 +1126,9 @@ private final class PeerInfoScreenNode: ViewControllerTracingNode, UIScrollViewD
             },
             openPhone: { [weak self] value in
                 self?.openPhone(value: value)
+            },
+            openUserID: { [weak self] value in
+                self?.openUserId(value: value)
             },
             editingOpenNotificationSettings: { [weak self] in
                 self?.editingOpenNotificationSettings()
@@ -2542,6 +2556,34 @@ private final class PeerInfoScreenNode: ViewControllerTracingNode, UIScrollViewD
                 })
             }
         }
+    }
+
+    private func openUserId(value: String) {
+        let _ = (getUserPeer(postbox: self.context.account.postbox, peerId: peerId)
+        |> deliverOnMainQueue).start(next: { [weak self] peer, _ in
+            guard let strongSelf = self else {
+                return
+            }
+            let actionSheet = ActionSheetController(presentationData: strongSelf.presentationData)
+            let dismissAction: () -> Void = { [weak actionSheet] in
+                actionSheet?.dismissAnimated()
+            }
+            actionSheet.setItemGroups([
+                ActionSheetItemGroup(items: [
+                    ActionSheetButtonItem(title: "Copy", action: {
+                        dismissAction()
+                        UIPasteboard.general.string = value
+                    }),
+                    ActionSheetButtonItem(title: "Make transaction", action: {
+                        dismissAction()
+                    }),
+                ]),
+                ActionSheetItemGroup(items: [ActionSheetButtonItem(title: strongSelf.presentationData.strings.Common_Cancel, action: { dismissAction() })])
+            ])
+            strongSelf.view.endEditing(true)
+            strongSelf.controller?.present(actionSheet, in: .window(.root))
+        })
+        
     }
     
     private func openPhone(value: String) {

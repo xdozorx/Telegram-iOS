@@ -19,6 +19,8 @@ import PeerAvatarGalleryUI
 import MapResourceToAvatarSizes
 import PhoneNumberFormat
 
+private let UserIdIndex = 4
+
 private struct EditSettingsItemArguments {
     let context: AccountContext
     let accountManager: AccountManager
@@ -33,6 +35,7 @@ private struct EditSettingsItemArguments {
     let saveEditingState: () -> Void
     let addAccount: () -> Void
     let logout: () -> Void
+    let copyUserId:(String) -> Void
 }
 
 private enum SettingsSection: Int32 {
@@ -63,6 +66,7 @@ private enum SettingsEntry: ItemListNodeEntry {
     case bioText(PresentationTheme, String, String)
     case bioInfo(PresentationTheme, String)
     
+    case userID(PresentationTheme, String, String)
     case phoneNumber(PresentationTheme, String, String)
     case username(PresentationTheme, String, String)
     
@@ -75,7 +79,7 @@ private enum SettingsEntry: ItemListNodeEntry {
                 return SettingsSection.info.rawValue
             case .bioText, .bioInfo:
                 return SettingsSection.bio.rawValue
-            case .phoneNumber, .username:
+            case .phoneNumber, .username, .userID:
                 return SettingsSection.personalData.rawValue
             case .addAccount:
                 return SettingsSection.addAccount.rawValue
@@ -94,14 +98,16 @@ private enum SettingsEntry: ItemListNodeEntry {
                 return 2
             case .bioInfo:
                 return 3
+            case .userID:
+                return Int32(UserIdIndex)
             case .phoneNumber:
-                return 4
-            case .username:
                 return 5
-            case .addAccount:
+            case .username:
                 return 6
-            case .logOut:
+            case .addAccount:
                 return 7
+            case .logOut:
+                return 8
         }
     }
     
@@ -160,6 +166,13 @@ private enum SettingsEntry: ItemListNodeEntry {
                 } else {
                     return false
                 }
+            
+            case let .userID(lhsTheme, lhsText, lhsID):
+                if case let .userID(rhsTheme, rhsText, lhsID) = rhs, lhsTheme === rhsTheme, lhsText == rhsText, lhsID == lhsID {
+                    return true
+                } else {
+                    return false
+                }
             case let .phoneNumber(lhsTheme, lhsText, lhsNumber):
                 if case let .phoneNumber(rhsTheme, rhsText, rhsNumber) = rhs, lhsTheme === rhsTheme, lhsText == rhsText, lhsNumber == rhsNumber {
                     return true
@@ -208,6 +221,11 @@ private enum SettingsEntry: ItemListNodeEntry {
                 }, tag: EditSettingsEntryTag.bio)
             case let .bioInfo(theme, text):
                 return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
+            
+            case let .userID(theme, text, id):
+                return ItemListDisclosureItem(presentationData: presentationData, title: text, label: id, sectionId: ItemListSectionId(self.section), style: .blocks, disclosureStyle: .none, action: {
+                    arguments.copyUserId(id)
+                })
             case let .phoneNumber(theme, text, number):
                 return ItemListDisclosureItem(presentationData: presentationData, title: text, label: number, sectionId: ItemListSectionId(self.section), style: .blocks, action: {
                     arguments.pushController(ChangePhoneNumberIntroController(context: arguments.context, phoneNumber: number))
@@ -294,6 +312,8 @@ private func editSettingsEntries(presentationData: PresentationData, state: Edit
         entries.append(.bioText(presentationData.theme, state.editingBioText, presentationData.strings.UserInfo_About_Placeholder))
         entries.append(.bioInfo(presentationData.theme, presentationData.strings.Settings_About_Help))
         
+        entries.append(.userID(presentationData.theme, "User ID",  String(peer.id.id)))
+        
         if let phone = peer.phone {
             entries.append(.phoneNumber(presentationData.theme, presentationData.strings.Settings_PhoneNumber, formatPhoneNumber(phone)))
         }
@@ -341,6 +361,7 @@ func editSettingsController(context: AccountContext, currentName: ItemListAvatar
     let avatarAndNameInfoContext = ItemListAvatarAndNameInfoItemContext()
     var updateHiddenAvatarImpl: (() -> Void)?
     var changeProfilePhotoImpl: (() -> Void)?
+    var showCopyMenu:((String) -> Void)?
     
     var getNavigationController: (() -> NavigationController?)?
     
@@ -423,6 +444,8 @@ func editSettingsController(context: AccountContext, currentName: ItemListAvatar
                 presentControllerImpl?(logoutOptionsController(context: context, navigationController: navigationController, canAddAccounts: canAddAccounts, phoneNumber: phoneNumber), ViewControllerPresentationArguments(presentationAnimation: .modalSheet))
             }
         })
+    }, copyUserId: { userId in
+        showCopyMenu?(userId)
     })
     
     let peerView = context.account.viewTracker.peerView(context.account.peerId)
@@ -480,6 +503,37 @@ func editSettingsController(context: AccountContext, currentName: ItemListAvatar
             }
         }
     }
+    
+    showCopyMenu = { [weak controller] value in
+
+        controller?.view.endEditing(true)
+        let presentationData = context.sharedContext.currentPresentationData.with { $0 }
+        
+        let contextMenuController = ContextMenuController(actions: [ContextMenuAction(content: .text(title: presentationData.strings.Conversation_ContextMenuCopy, accessibilityLabel: presentationData.strings.Conversation_ContextMenuCopy), action: {
+            UIPasteboard.general.string = value
+        })])
+
+        controller?.present(contextMenuController, in: .window(.root), with: ContextMenuControllerPresentationArguments(sourceNodeAndRect: { [weak controller] in
+            if let controller = controller {
+                
+                var rect: CGRect?
+                var sourceNode: ASDisplayNode?
+                
+                controller.forEachItemNode { (itemNode) in
+                    if let itemNode = itemNode as? ItemListDisclosureItemNode, itemNode.index == UserIdIndex {
+                        sourceNode = itemNode
+                    }
+                }
+                
+                guard let node = sourceNode else { return nil }
+                return (node, node.bounds.insetBy(dx: 0.0, dy: 15), controller.displayNode, controller.view.bounds)
+
+            } else {
+                return nil
+            }
+        }))
+    }
+    
     changeProfilePhotoImpl = { [weak controller] in
         let _ = (context.account.postbox.transaction { transaction -> (Peer?, SearchBotsConfiguration) in
             return (transaction.getPeer(context.account.peerId), currentSearchBotsConfiguration(transaction: transaction))
